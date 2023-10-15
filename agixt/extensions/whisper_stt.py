@@ -1,13 +1,19 @@
 try:
-    from whisper_cpp_python import Whisper
+    from whisper_cpp import Whisper
 except ImportError:
     import sys
     import subprocess
 
     subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "whisper-cpp-python"]
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "whisper-cpp-pybind",
+        ]
     )
-    from whisper_cpp_python import Whisper
+    from whisper_cpp import Whisper
 
 import base64
 import requests
@@ -54,9 +60,8 @@ class whisper_stt(Extensions):
         file_path = os.path.join(os.getcwd(), "WORKSPACE", filename)
         if not os.path.exists(file_path):
             raise RuntimeError(f"Failed to load audio: {filename} does not exist.")
-        output = w.transcribe(open(file_path))
-        if "text" in output:
-            return output["text"]
+        w.transcribe(file_path)
+        return w.output()
 
     async def transcribe_base64_audio(self, base64_audio: str):
         # Save the audio as a file then run transcribe_audio_from_file.
