@@ -1,12 +1,12 @@
 {
-    "chain_name": "MySQL Chat",
+    "chain_name": "SQLite Chat",
     "steps": [
         {
             "step": 1,
             "agent_name": "SQLExpert",
             "prompt_type": "Command",
             "prompt": {
-                "command_name": "Get Database Schema from MySQL Database",
+                "command_name": "Get Database Schema from SQLite Database",
                 "conversation": "AGiXT Terminal"
             }
         },
@@ -18,7 +18,7 @@
                 "prompt_name": "SQLQuery",
                 "prompt_category": "Default",
                 "table_metadata_string": "{STEP1}",
-                "database_type": "MySQL",
+                "database_type": "SQLite",
                 "shots": 1,
                 "context_results": 0,
                 "browse_links": false,
@@ -35,7 +35,7 @@
             "agent_name": "SQLExpert",
             "prompt_type": "Command",
             "prompt": {
-                "command_name": "Custom SQL Query in MySQL Database",
+                "command_name": "Custom SQL Query in SQLite Database",
                 "query": "{STEP2}",
                 "conversation": "AGiXT Terminal"
             }

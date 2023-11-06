@@ -17,15 +17,13 @@ class Extensions:
         agent_name="",
         agent_config=None,
         conversation_name="",
-        load_commands_flag: bool = True,
+        ApiClient=None,
     ):
         self.agent_config = agent_config
         self.agent_name = agent_name if agent_name else "gpt4free"
         self.conversation_name = conversation_name
-        if load_commands_flag:
-            self.commands = self.load_commands()
-        else:
-            self.commands = []
+        self.ApiClient = ApiClient
+        self.commands = self.load_commands()
         if agent_config != None:
             if "commands" not in self.agent_config:
                 self.agent_config["commands"] = {}
@@ -151,6 +149,7 @@ class Extensions:
             "command_name": command_name,
             "conversation_name": self.conversation_name,
             "enabled_commands": self.get_enabled_commands(),
+            "ApiClient": self.ApiClient,
             **self.agent_config["settings"],
         }
         command_function, module, params = self.find_command(command_name=command_name)

@@ -1,12 +1,13 @@
 import logging
-from ApiClient import ApiClient, Chain, Prompts
+from ApiClient import Chain, Prompts, log_interaction
 from Extensions import Extensions
 
 
 class Chains:
-    def __init__(self, user="USER"):
+    def __init__(self, user="USER", ApiClient=None):
         self.user = user
         self.chain = Chain(user=user)
+        self.ApiClient = ApiClient
 
     async def run_chain_step(
         self,
@@ -41,15 +42,17 @@ class Chains:
 
                 if "conversation_name" not in args:
                     args["conversation_name"] = f"Chain Execution History: {chain_name}"
+                if "conversation" in args:
+                    args["conversation_name"] = args["conversation"]
                 if prompt_type == "Command":
-                    return ApiClient.execute_command(
+                    return self.ApiClient.execute_command(
                         agent_name=agent_name,
                         command_name=step["prompt"]["command_name"],
                         command_args=args,
                         conversation_name=args["conversation_name"],
                     )
                 elif prompt_type == "Prompt":
-                    result = ApiClient.prompt_agent(
+                    result = self.ApiClient.prompt_agent(
                         agent_name=agent_name,
                         prompt_name=prompt_name,
                         prompt_args={
@@ -60,7 +63,7 @@ class Chains:
                         },
                     )
                 elif prompt_type == "Chain":
-                    result = ApiClient.run_chain(
+                    result = self.ApiClient.run_chain(
                         chain_name=args["chain"],
                         user_input=args["input"],
                         agent_name=agent_name,
@@ -92,9 +95,18 @@ class Chains:
         from_step=1,
         chain_args={},
     ):
-        chain_data = ApiClient.get_chain(chain_name=chain_name)
+        chain_data = self.ApiClient.get_chain(chain_name=chain_name)
         if chain_data == {}:
             return f"Chain `{chain_name}` not found."
+        log_interaction(
+            role="USER",
+            message=user_input,
+            agent_name=agent_override if agent_override != "" else "AGiXT",
+            conversation_name=f"Chain Execution History: {chain_name}"
+            if "conversation_name" not in chain_args
+            else chain_args["conversation_name"],
+            user=self.user,
+        )
         logging.info(f"Running chain '{chain_name}'")
         responses = {}  # Create a dictionary to hold responses.
         last_response = ""
@@ -139,6 +151,15 @@ class Chains:
             return responses
         else:
             # Return only the last response in the chain.
+            log_interaction(
+                role=agent_override if agent_override != "" else "AGiXT",
+                message=last_response,
+                agent_name=agent_override if agent_override != "" else "AGiXT",
+                conversation_name=f"Chain Execution History: {chain_name}"
+                if "conversation_name" not in chain_args
+                else chain_args["conversation_name"],
+                user=self.user,
+            )
             return last_response
 
     def get_chain_args(self, chain_name):

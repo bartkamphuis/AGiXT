@@ -63,3 +63,11 @@ def verify_api_key(authorization: str = Header(None)):
             raise HTTPException(status_code=401, detail="Invalid API Key")
     else:
         return "USER"
+
+
+def get_api_client(authorization: str = Header(None)):
+    try:
+        scheme, _, api_key = authorization.partition(" ")
+    except:
+        api_key = None
+    return AGiXTSDK(base_uri="http://localhost:7437", api_key=api_key)

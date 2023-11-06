@@ -35,7 +35,7 @@ Embracing the spirit of extremity in every facet of life, we introduce AGiXT. Th
     - [Running and Updating AGiXT](#running-and-updating-agixt)
   - [Configuration](#configuration)
   - [Documentation](#documentation)
-  - [Other Repositorities](#other-repositorities)
+  - [Other Repositories](#other-repositories)
   - [Contributing](#contributing)
   - [Donations and Sponsorships](#donations-and-sponsorships)
   - [Our Team 🧑‍💻](#our-team-)
@@ -47,7 +47,7 @@ Embracing the spirit of extremity in every facet of life, we introduce AGiXT. Th
 
 ### Monitor Your Usage
 
-Please note that using some AI providers (such as OpenAI's GPT-4 API) can be expensive! Monitor your usage carefully to avoid incurring unexpected costs.  We're **NOT** responsible for your usage under any circumstance.
+Please note that using some AI providers (such as OpenAI's GPT-4 API) can be expensive! Monitor your usage carefully to avoid incurring unexpected costs.  We're **NOT** responsible for your usage under any circumstances.
 
 ## Key Features 🗝️
 
@@ -64,7 +64,7 @@ Please note that using some AI providers (such as OpenAI's GPT-4 API) can be exp
 - **Platform Interoperability & AI Agent Management**: Streamlined creation, renaming, deletion, and updating of AI agent settings along with easy interaction with popular platforms like Twitter, GitHub, Google, DALL-E, and more.
 - **Custom Prompts & Command Control**: Granular control over agent abilities through enabling or disabling specific commands, and easy creation, editing, and deletion of custom prompts to standardize user inputs.
 - **RESTful API**: FastAPI-powered RESTful API for seamless integration with external applications and services.
-- **Expanding AI Support**: Continually updated to include new AI providers and services, ensuring the software stays at the forefront of AI technology.\
+- **Expanding AI Support**: Continually updated to include new AI providers and services, ensuring the software stays at the forefront of AI technology.
 
 ### Getting Started with Local Models and AGiXT Video
 
@@ -129,7 +129,7 @@ Each AGiXT Agent has its own settings for interfacing with AI providers, and oth
 
 Need more information? Check out the [documentation](https://josh-xt.github.io/AGiXT) for more details to get a better understanding of the concepts and features of AGiXT.
 
-## Other Repositorities
+## Other Repositories
 
 Check out the other AGiXT repositories at https://github.com/orgs/AGiXT/repositories - these include the AGiXT NextJS Web UI, AGiXT Streamlit Web UI, AGiXT Python SDK, AGiXT TypeScript SDK, and more!
 

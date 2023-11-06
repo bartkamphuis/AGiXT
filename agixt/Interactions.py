@@ -11,7 +11,6 @@ from readers.file import FileReader
 from Websearch import Websearch
 from Extensions import Extensions
 from ApiClient import (
-    ApiClient,
     Agent,
     Prompts,
     Chain,
@@ -27,13 +26,21 @@ def get_tokens(text: str) -> int:
 
 
 class Interactions:
-    def __init__(self, agent_name: str = "", collection_number: int = 0, user="USER"):
+    def __init__(
+        self,
+        agent_name: str = "",
+        collection_number: int = 0,
+        user="USER",
+        ApiClient=None,
+    ):
         if agent_name != "":
             self.agent_name = agent_name
-            self.agent = Agent(self.agent_name, user=user)
+            self.agent = Agent(self.agent_name, user=user, ApiClient=ApiClient)
             self.agent_commands = self.agent.get_commands_string()
             self.websearch = Websearch(
                 agent_name=self.agent_name,
+                agent_config=self.agent.AGENT_CONFIG,
+                ApiClient=ApiClient,
                 searxng_instance_url=self.agent.AGENT_CONFIG["settings"][
                     "SEARXNG_INSTANCE_URL"
                 ]
@@ -48,6 +55,7 @@ class Interactions:
             agent_name=self.agent_name,
             agent_config=self.agent.AGENT_CONFIG,
             collection_number=int(collection_number),
+            ApiClient=ApiClient,
         )
         self.stop_running_event = None
         self.browsed_links = []
@@ -55,6 +63,7 @@ class Interactions:
         self.user = user
         self.chain = Chain(user=user)
         self.cp = Prompts(user=user)
+        self.ApiClient = ApiClient
 
     def custom_format(self, string, **kwargs):
         if isinstance(string, list):
@@ -118,6 +127,7 @@ class Interactions:
                     agent_name=self.agent_name,
                     agent_config=self.agent.AGENT_CONFIG,
                     collection_number=2,
+                    ApiClient=self.ApiClient,
                 ).get_memories(
                     user_input=user_input,
                     limit=3,
@@ -127,6 +137,7 @@ class Interactions:
                     agent_name=self.agent_name,
                     agent_config=self.agent.AGENT_CONFIG,
                     collection_number=3,
+                    ApiClient=self.ApiClient,
                 ).get_memories(
                     user_input=user_input,
                     limit=3,
@@ -143,6 +154,7 @@ class Interactions:
                         agent_name=self.agent_name,
                         agent_config=self.agent.AGENT_CONFIG,
                         collection_number=1,
+                        ApiClient=self.ApiClient,
                     ).get_memories(
                         user_input=user_input,
                         limit=top_results,
@@ -156,6 +168,7 @@ class Interactions:
                             collection_number=int(
                                 kwargs["inject_memories_from_collection_number"]
                             ),
+                            ApiClient=self.ApiClient,
                         ).get_memories(
                             user_input=user_input,
                             limit=top_results,
@@ -227,6 +240,13 @@ class Interactions:
                     )
                     role = interaction["role"] if "role" in interaction else ""
                     message = interaction["message"] if "message" in interaction else ""
+                    # Inject minimal conversation history into the prompt, just enough to give the agent some context.
+                    # Strip code blocks out of the message
+                    message = regex.sub(r"(```.*?```)", "", message)
+                    # Strip any #GENERATED_AUDIO or #GENERATED_IMAGE until end of line.
+                    message = regex.sub(
+                        r"(#GENERATED_AUDIO|#GENERATED_IMAGE).*", "", message
+                    )
                     conversation_history += f"{timestamp} {role}: {message} \n "
                     x += 1
                 else:
@@ -460,7 +480,7 @@ class Interactions:
             time.sleep(10)
             if context_results > 0:
                 context_results = context_results - 1
-            return ApiClient.prompt_agent(
+            return self.ApiClient.prompt_agent(
                 agent_name=self.agent_name,
                 prompt_name=prompt,
                 prompt_args={
@@ -500,7 +520,7 @@ class Interactions:
         if shots > 1:
             responses = [self.response]
             for shot in range(shots - 1):
-                shot_response = ApiClient.prompt_agent(
+                shot_response = self.ApiClient.prompt_agent(
                     agent_name=self.agent_name,
                     prompt_name=prompt,
                     prompt_args={
@@ -525,16 +545,19 @@ class Interactions:
         return self.response
 
     def create_command_suggestion_chain(self, agent_name, command_name, command_args):
-        chains = ApiClient.get_chains()
+        chains = self.ApiClient.get_chains()
         chain_name = f"{agent_name} Command Suggestions"
         if chain_name in chains:
             step = (
-                int(ApiClient.get_chain(chain_name=chain_name)["steps"][-1]["step"]) + 1
+                int(
+                    self.ApiClient.get_chain(chain_name=chain_name)["steps"][-1]["step"]
+                )
+                + 1
             )
         else:
-            ApiClient.add_chain(chain_name=chain_name)
+            self.ApiClient.add_chain(chain_name=chain_name)
             step = 1
-        ApiClient.add_step(
+        self.ApiClient.add_step(
             chain_name=chain_name,
             agent_name=agent_name,
             step_number=step,
