@@ -17,6 +17,7 @@ from ApiClient import (
     log_interaction,
     get_conversation,
 )
+from Defaults import DEFAULT_USER
 
 
 def get_tokens(text: str) -> int:
@@ -30,7 +31,7 @@ class Interactions:
         self,
         agent_name: str = "",
         collection_number: int = 0,
-        user="USER",
+        user=DEFAULT_USER,
         ApiClient=None,
     ):
         if agent_name != "":
@@ -56,6 +57,7 @@ class Interactions:
             agent_config=self.agent.AGENT_CONFIG,
             collection_number=int(collection_number),
             ApiClient=ApiClient,
+            user=user,
         )
         self.stop_running_event = None
         self.browsed_links = []
@@ -128,6 +130,7 @@ class Interactions:
                     agent_config=self.agent.AGENT_CONFIG,
                     collection_number=2,
                     ApiClient=self.ApiClient,
+                    user=self.user,
                 ).get_memories(
                     user_input=user_input,
                     limit=3,
@@ -138,6 +141,7 @@ class Interactions:
                     agent_config=self.agent.AGENT_CONFIG,
                     collection_number=3,
                     ApiClient=self.ApiClient,
+                    user=self.user,
                 ).get_memories(
                     user_input=user_input,
                     limit=3,
@@ -155,6 +159,7 @@ class Interactions:
                         agent_config=self.agent.AGENT_CONFIG,
                         collection_number=1,
                         ApiClient=self.ApiClient,
+                        user=self.user,
                     ).get_memories(
                         user_input=user_input,
                         limit=top_results,
@@ -169,6 +174,7 @@ class Interactions:
                                 kwargs["inject_memories_from_collection_number"]
                             ),
                             ApiClient=self.ApiClient,
+                            user=self.user,
                         ).get_memories(
                             user_input=user_input,
                             limit=top_results,
@@ -183,7 +189,6 @@ class Interactions:
             context = f"The user's input causes you remember these things:\n{context}\n"
         else:
             context = ""
-        command_list = self.agent.get_commands_string()
         if chain_name != "":
             try:
                 for arg, value in kwargs.items():
@@ -231,41 +236,38 @@ class Interactions:
         else:
             conversation_results = int(top_results) if top_results > 0 else 5
         conversation_history = ""
-        if "interactions" in conversation and conversation["interactions"] != []:
-            x = 1
-            for interaction in conversation["interactions"]:
-                if conversation_results > x:
-                    timestamp = (
-                        interaction["timestamp"] if "timestamp" in interaction else ""
-                    )
-                    role = interaction["role"] if "role" in interaction else ""
-                    message = interaction["message"] if "message" in interaction else ""
-                    # Inject minimal conversation history into the prompt, just enough to give the agent some context.
-                    # Strip code blocks out of the message
-                    message = regex.sub(r"(```.*?```)", "", message)
-                    # Strip any #GENERATED_AUDIO or #GENERATED_IMAGE until end of line.
-                    message = regex.sub(
-                        r"(#GENERATED_AUDIO|#GENERATED_IMAGE).*", "", message
-                    )
-                    conversation_history += f"{timestamp} {role}: {message} \n "
-                    x += 1
-                else:
-                    break
+        if "interactions" in conversation:
+            if conversation["interactions"] != []:
+                x = 1
+                for interaction in conversation["interactions"]:
+                    if conversation_results > x:
+                        timestamp = (
+                            interaction["timestamp"]
+                            if "timestamp" in interaction
+                            else ""
+                        )
+                        role = interaction["role"] if "role" in interaction else ""
+                        message = (
+                            interaction["message"] if "message" in interaction else ""
+                        )
+                        # Inject minimal conversation history into the prompt, just enough to give the agent some context.
+                        # Strip code blocks out of the message
+                        message = regex.sub(r"(```.*?```)", "", message)
+                        # Strip any #GENERATED_AUDIO or #GENERATED_IMAGE until end of line.
+                        message = regex.sub(
+                            r"(#GENERATED_AUDIO|#GENERATED_IMAGE).*", "", message
+                        )
+                        conversation_history += f"{timestamp} {role}: {message} \n "
+                        x += 1
+                    else:
+                        break
         persona = ""
         if "persona" in prompt_args:
             if "PERSONA" in self.agent.AGENT_CONFIG["settings"]:
                 persona = self.agent.AGENT_CONFIG["settings"]["PERSONA"]
         if persona != "":
             persona = f"Your persona is: {persona}\n\n"
-        verbose_commands = "**You have commands available to use if they would be useful to provide a better user experience.**\n```json\n{\n"
-        for command in self.agent.available_commands:
-            verbose_commands += f'    "{command["friendly_name"]}": {{\n'
-            for arg in command["args"]:
-                verbose_commands += f'        "{arg}": "Your hallucinated input",\n'
-            verbose_commands += "    },\n"
-        verbose_commands += "}\n```"
-        verbose_commands = '**To execute a command, use the example below, it will be replaced with the commands output for the user. You can execute a command anywhere in your response and the commands will be executed in the order you use them.**\n#execute_command("Name of Command", {"arg1": "val1", "arg2": "val2"})'
-        if prompt_name == "Chat with Commands" and command_list == "":
+        if prompt_name == "Chat with Commands" and self.agent_commands == "":
             prompt_name = "Chat"
         file_contents = ""
         if "import_files" in prompt_args:
@@ -273,6 +275,7 @@ class Interactions:
                 agent_name=self.agent_name,
                 agent_config=self.agent.AGENT_CONFIG,
                 collection=4,
+                user=self.user,
             )
             # import_files should be formatted like [{"file_name": "file_content"}]
             files = []
@@ -355,9 +358,9 @@ class Interactions:
             string=prompt,
             user_input=user_input,
             agent_name=self.agent_name,
-            COMMANDS=verbose_commands,
+            COMMANDS=self.agent_commands,
             context=context,
-            command_list=command_list,
+            command_list=self.agent_commands,
             date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
             working_directory=working_directory,
             helper_agent_name=helper_agent_name,
@@ -384,6 +387,7 @@ class Interactions:
         conversation_name: str = "",
         browse_links: bool = False,
         prompt_category: str = "Default",
+        persist_context_in_history: bool = False,
         **kwargs,
     ):
         shots = int(shots)
@@ -454,15 +458,20 @@ class Interactions:
             websearch=websearch,
             **kwargs,
         )
+        log_message = (
+            user_input
+            if user_input != "" and persist_context_in_history == False
+            else formatted_prompt
+        )
         log_interaction(
             agent_name=self.agent_name,
             conversation_name=conversation_name,
             role="USER",
-            message=user_input if user_input != "" else formatted_prompt,
+            message=log_message,
             user=self.user,
         )
         try:
-            self.response = await self.agent.instruct(formatted_prompt, tokens=tokens)
+            self.response = await self.agent.inference(formatted_prompt, tokens=tokens)
         except Exception as e:
             # Log the error with the full traceback for the provider
             error = ""
@@ -595,6 +604,8 @@ class Interactions:
                                             agent_name=self.agent_name,
                                             agent_config=self.agent.AGENT_CONFIG,
                                             conversation_name=conversation_name,
+                                            ApiClient=self.ApiClient,
+                                            user=self.user,
                                         )
                                         command_output = await ext.execute_command(
                                             command_name=command_name,

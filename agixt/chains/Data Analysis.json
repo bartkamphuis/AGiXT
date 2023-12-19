@@ -6,8 +6,7 @@
             "agent_name": "SQLExpert",
             "prompt_type": "Command",
             "prompt": {
-                "command_name": "Write to File",
-                "filename": "data.csv",
+                "command_name": "Get CSV Preview Text",
                 "text": "{text}",
                 "conversation": "AGiXT Terminal"
             }
@@ -15,10 +14,21 @@
         {
             "step": 2,
             "agent_name": "SQLExpert",
-            "prompt_type": "Command",
+            "prompt_type": "Prompt",
             "prompt": {
-                "command_name": "Get Postgres Data Preview",
-                "text": "{text}",
+                "user_input": "{user_input}",
+                "prompt_name": "Code Interpreter",
+                "prompt_category": "Default",
+                "import_file": "./data.csv",
+                "file_preview": "{STEP1}",
+                "shots": 1,
+                "context_results": 0,
+                "browse_links": false,
+                "websearch": false,
+                "websearch_depth": 0,
+                "disable_memory": true,
+                "inject_memories_from_collection_number": 0,
+                "conversation_results": 0,
                 "conversation": "AGiXT Terminal"
             }
         },
@@ -28,10 +38,11 @@
             "prompt_type": "Prompt",
             "prompt": {
                 "user_input": "{user_input}",
-                "prompt_name": "Code Interpreter",
+                "prompt_name": "Verify Code Interpreter",
                 "prompt_category": "Default",
-                "import_file": "/workspace/data.csv",
-                "file_preview": "{STEP2}",
+                "import_file": "./data.csv",
+                "file_preview": "{STEP1}",
+                "code": "{STEP2}",
                 "shots": 1,
                 "context_results": 0,
                 "browse_links": false,
@@ -50,6 +61,7 @@
             "prompt": {
                 "command_name": "Execute Python Code",
                 "code": "{STEP3}",
+                "text": "{text}",
                 "conversation": "AGiXT Terminal"
             }
         }

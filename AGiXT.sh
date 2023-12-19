@@ -9,7 +9,6 @@ RED=$(tput setaf 1)
 MAGENTA=$(tput setaf 5)
 BLUE=$(tput setaf 4)
 RESET=$(tput sgr0)
-
 # Check if .env file exists
 environment_setup() {
     if [[ ! -f ".env" ]]; then
@@ -144,46 +143,22 @@ update_docker() {
     git pull
     echo "${BOLD}${YELLOW}Updating Text generation web UI Docker image...${RESET}"
     cd ..
-    if [[ "$DB_CONNECTED" == "true" ]]; then
-      docker-compose -f docker-compose-postgres-local-nvidia.yml build text-generation-webui
-    else
-      docker-compose -f docker-compose-local-nvidia.yml build text-generation-webui
-    fi
+    docker-compose -f docker-compose-local-nvidia.yml build text-generation-webui
   fi
   echo "${BOLD}${YELLOW}Current directory: ${PWD}${RESET}"
-  if [[ "$DB_CONNECTED" == "true" ]]; then
-    docker-compose -f docker-compose-postgres.yml pull
-  else
-    docker-compose pull
-  fi
+  docker-compose pull
   echo "${BOLD}${YELLOW}Updates Completed...${RESET}"
-}
-
-update() {
-  if [[ "$AGIXT_URI" == "http://agixt:7437" ]]; then
-    update_docker
-  else
-    update_local
-  fi
-  echo "${BOLD}${GREEN}Update complete.${RESET}"
-  sleep 2
 }
 # Function to perform the Docker install
 docker_install() {
   sed -i '/^AGIXT_URI=/d' .env
   echo "AGIXT_URI=http://agixt:7437" >> .env
-  sed -i '/^TEXTGEN_URI=/d' .env
-  echo "TEXTGEN_URI=http://text-generation-webui:5000" >> .env
   source .env
   if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
-    update
+    docker-compose pull
   fi
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
-  if [[ "$DB_CONNECTED" == "true" ]]; then
-    docker-compose -f docker-compose-postgres.yml up
-  else
-    docker-compose up
-  fi
+  docker-compose up
 }
 docker_install_dev() {
   sed -i '/^AGIXT_URI=/d' .env
@@ -285,17 +260,10 @@ docker_install_local_nvidia() {
 
   echo "${BOLD}${GREEN}Running Docker install...${RESET}"
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
-  if [[ "$DB_CONNECTED" == "true" ]]; then
-    if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
-      docker-compose -f docker-compose-postgres-local-nvidia.yml pull
-    fi
-    docker-compose -f docker-compose-postgres-local-nvidia.yml up
-  else
-    if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
-      docker-compose -f docker-compose-local-nvidia.yml pull
-    fi
-    docker-compose -f docker-compose-local-nvidia.yml up
+  if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
+    docker-compose -f docker-compose-local-nvidia.yml pull
   fi
+  docker-compose -f docker-compose-local-nvidia.yml up
 }
 docker_install_local_nvidia_sd() {
   sed -i '/^AGIXT_URI=/d' .env
@@ -337,17 +305,10 @@ docker_install_local_nvidia_sd() {
 
   echo "${BOLD}${GREEN}Running Docker install...${RESET}"
   echo "${BOLD}${YELLOW}Starting Docker Compose...${RESET}"
-  if [[ "$DB_CONNECTED" == "true" ]]; then
-    if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
-      docker-compose -f docker-compose-postgres-local-nvidia-sd.yml pull
-    fi
-    docker-compose -f docker-compose-postgres-local-nvidia-sd.yml up
-  else
-    if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
-      docker-compose -f docker-compose-local-nvidia-sd.yml pull
-    fi
-    docker-compose -f docker-compose-local-nvidia-sd.yml up
+  if [[ "$AGIXT_AUTO_UPDATE" == "true" ]]; then
+    docker-compose -f docker-compose-local-nvidia-sd.yml pull
   fi
+  docker-compose -f docker-compose-local-nvidia-sd.yml up
 }
 # Function to perform the local install
 local_install() {
@@ -433,6 +394,9 @@ toggle_updates () {
 }
 
 environment_setup
+if [[ -z "${WORKING_DIRECTORY}" ]]; then
+  echo "WORKING_DIRECTORY=${PWD}/agixt/WORKSPACE" >> .env
+fi
 # Main loop to display the menu and handle user input
 while true; do
   display_menu

@@ -141,14 +141,17 @@ class Agent:
                 self.AUTONOMOUS_EXECUTION = True
             self.commands = self.load_commands()
             self.available_commands = Extensions(
-                agent_name=self.agent_name, agent_config=self.AGENT_CONFIG
+                agent_name=self.agent_name,
+                agent_config=self.AGENT_CONFIG,
+                ApiClient=ApiClient,
+                user=user,
             ).get_available_commands()
             self.clean_agent_config_commands()
 
-    async def instruct(self, prompt, tokens):
+    async def inference(self, prompt, tokens):
         if not prompt:
             return ""
-        answer = await self.PROVIDER.instruct(prompt=prompt, tokens=tokens)
+        answer = await self.PROVIDER.inference(prompt=prompt, tokens=tokens)
         return answer
 
     def _load_agent_config_keys(self, keys):
@@ -168,23 +171,24 @@ class Agent:
             json.dump(self.AGENT_CONFIG, f)
 
     def get_commands_string(self):
+        verbose_commands = "**You have commands available to use if they would be useful to provide a better user experience.**\n```json\n{\n"
         if len(self.available_commands) == 0:
-            return None
-
+            return ""
         enabled_commands = filter(
             lambda command: command.get("enabled", True), self.available_commands
         )
         if not enabled_commands:
-            return None
-
+            return ""
         friendly_names = map(
-            lambda command: f"`{command['friendly_name']}` - Arguments: {command['args']}",
+            lambda command: f"`#execute_command('{command['friendly_name']}', {command['args']})",
             enabled_commands,
         )
         if not friendly_names:
             return ""
-        command_list = "\n".join(friendly_names)
-        return f"Commands Available To Complete Task:\n{command_list}\n\n"
+        verbose_commands += "\n".join(friendly_names)
+        verbose_commands += "}\n```"
+        verbose_commands = '**To execute a command, use the example below, it will be replaced with the commands output for the user. You can execute a command anywhere in your response and the commands will be executed in the order you use them.**\n#execute_command("Name of Command", {"arg1": "val1", "arg2": "val2"})'
+        return verbose_commands
 
     def get_provider(self):
         config_file = self.get_agent_config()

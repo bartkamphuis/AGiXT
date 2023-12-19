@@ -19,8 +19,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 DB_CONNECTED = True if os.getenv("DB_CONNECTED", "false").lower() == "true" else False
+DEFAULT_USER = os.getenv("DEFAULT_USER", "USER")
 if DB_CONNECTED:
-    DATABASE_TYPE = os.getenv("DATABASE_TYPE", "sqlite")
     DATABASE_USER = os.getenv("DATABASE_USER", os.getenv("POSTGRES_USER", "postgres"))
     DATABASE_PASSWORD = os.getenv(
         "DATABASE_PASSWORD", os.getenv("POSTGRES_PASSWORD", "postgres")
@@ -32,20 +32,6 @@ if DB_CONNECTED:
     DATABASE_NAME = os.getenv("DATABASE_NAME", os.getenv("POSTGRES_DB", "postgres"))
     LOGIN_URI = f"{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}"
     DATABASE_URL = f"postgresql://{LOGIN_URI}"
-    if DATABASE_TYPE == "mssql":
-        DATABASE_URL = (
-            f"mssql+pyodbc://{LOGIN_URI}?driver=ODBC+Driver+17+for+SQL+Server"
-        )
-    elif DATABASE_TYPE == "mysql":
-        DATABASE_URL = f"mysql://{LOGIN_URI}"
-    elif DATABASE_TYPE == "sqlite":
-        if "/" not in DATABASE_NAME:
-            if not os.path.exists(f"{os.getcwd()}/data"):
-                os.makedirs(f"{os.getcwd()}/data")
-            DATABASE_NAME = f"{os.getcwd()}/data/{DATABASE_NAME}"
-        DATABASE_URL = f"sqlite:///{DATABASE_NAME}.db"
-    elif DATABASE_TYPE == "oracle":
-        DATABASE_URL = f"oracle://{LOGIN_URI}"
     try:
         engine = create_engine(DATABASE_URL)
     except Exception as e:
@@ -66,7 +52,8 @@ def get_session():
 class User(Base):
     __tablename__ = "user"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email = Column(String, default="USER", unique=True)
+    email = Column(String, default=DEFAULT_USER, unique=True)
+    role = Column(String, default="user")
 
 
 class Provider(Base):
@@ -81,7 +68,7 @@ class ProviderSetting(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     provider_id = Column(UUID(as_uuid=True), ForeignKey("provider.id"), nullable=False)
     name = Column(Text, nullable=False)
-    value = Column(Text)
+    value = Column(Text, nullable=True)
 
 
 class AgentProviderSetting(Base):
@@ -136,7 +123,6 @@ class AgentCommand(Base):
 class Conversation(Base):
     __tablename__ = "conversation"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    agent_id = Column(UUID(as_uuid=True), ForeignKey("agent.id"), nullable=False)
     name = Column(Text, nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
     user = relationship("User", backref="conversation")
@@ -279,9 +265,11 @@ class Prompt(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("user.id"), nullable=True)
     prompt_category = relationship("PromptCategory", backref="prompts")
     user = relationship("User", backref="prompt")
+    arguments = relationship("Argument", backref="prompt", cascade="all, delete-orphan")
 
 
 if __name__ == "__main__":
+    print("DB_CONNECTED:", DB_CONNECTED)
     if DB_CONNECTED:
         logging.info("Connecting to database...")
         time.sleep(10)

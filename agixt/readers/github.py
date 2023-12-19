@@ -12,6 +12,7 @@ class GithubReader(Memories):
         collection_number: int = 0,
         use_agent_settings: bool = False,
         ApiClient=None,
+        user=None,
         **kwargs,
     ):
         super().__init__(
@@ -19,9 +20,10 @@ class GithubReader(Memories):
             agent_config=agent_config,
             collection_number=collection_number,
             ApiClient=ApiClient,
+            user=user,
         )
         self.file_reader = FileReader(
-            agent_name=self.agent_name, agent_config=self.agent_config
+            agent_name=self.agent_name, agent_config=self.agent_config, user=user
         )
         self.use_agent_settings = use_agent_settings
         if (
@@ -65,10 +67,11 @@ class GithubReader(Memories):
             f"https://github.com/{user}/{repo}/archive/refs/heads/{github_branch}.zip"
         )
         try:
+            # Download zip to zip_file_name
             response = requests.get(repo_url, auth=(github_user, github_token))
         except:
             if github_branch != "master":
-                return await self.full_repository(
+                return await self.write_github_repository_to_memory(
                     github_repo=github_repo,
                     github_user=github_user,
                     github_token=github_token,
@@ -76,7 +79,9 @@ class GithubReader(Memories):
                 )
             else:
                 return False
-        zip_file_name = f"{repo}_{github_branch}.zip"
+        zip_file_name = os.path.join(
+            os.getcwd(), "WORKSPACE", f"{repo}_{github_branch}.zip"
+        )
         with open(zip_file_name, "wb") as f:
             f.write(response.content)
         await self.file_reader.write_file_to_memory(file_path=zip_file_name)

@@ -2,6 +2,7 @@ import logging
 import os
 import asyncio
 import sys
+import json
 import spacy
 import chromadb
 from chromadb.config import Settings
@@ -12,6 +13,7 @@ from Embedding import Embedding
 from datetime import datetime
 from collections import Counter
 from typing import List
+from Defaults import DEFAULT_USER
 
 
 if sys.platform == "win32":
@@ -28,8 +30,8 @@ def nlp(text):
     return sp(text)
 
 
-def camel_to_snake(camel_str):
-    camel_str = camel_str.replace(" ", "")
+def camel_to_snake(camel_str: str = ""):
+    camel_str = camel_str.replace(" ", "").replace("@", "_").replace(".", "_")
     snake_str = ""
     for i, char in enumerate(camel_str):
         if char.isupper():
@@ -141,9 +143,15 @@ class Memories:
         collection_number: int = 0,
         ApiClient=None,
         summarize_content: bool = False,
+        user=DEFAULT_USER,
     ):
         self.agent_name = agent_name
-        self.collection_name = camel_to_snake(agent_name)
+        if user != DEFAULT_USER:
+            self.collection_name = (
+                f"{camel_to_snake(user)}_{camel_to_snake(agent_name)}"
+            )
+        else:
+            self.collection_name = camel_to_snake(agent_name)
         self.collection_number = collection_number
         if collection_number > 0:
             self.collection_name = f"{self.collection_name}_{collection_number}"
@@ -414,3 +422,157 @@ class Memories:
         # Sort the chunks by their score in descending order before returning them
         content_chunks.sort(key=lambda x: x[0], reverse=True)
         return [chunk_text for score, chunk_text in content_chunks]
+
+    async def get_context(
+        self,
+        user_input: str,
+        limit: int = 10,
+        websearch: bool = False,
+        additional_collections: List[str] = [],
+    ) -> str:
+        self.collection_number = 0
+        context = await self.get_memories(
+            user_input=user_input,
+            limit=limit,
+            min_relevance_score=0.2,
+        )
+        self.collection_number = 2
+        positive_feedback = await self.get_memories(
+            user_input=user_input,
+            limit=3,
+            min_relevance_score=0.7,
+        )
+        self.collection_number = 3
+        negative_feedback = await self.get_memories(
+            user_input=user_input,
+            limit=3,
+            min_relevance_score=0.7,
+        )
+        if positive_feedback or negative_feedback:
+            context += f"The users input makes you to remember some feedback from previous interactions:\n"
+            if positive_feedback:
+                context += f"Positive Feedback:\n{positive_feedback}\n"
+            if negative_feedback:
+                context += f"Negative Feedback:\n{negative_feedback}\n"
+        if websearch:
+            self.collection_number = 1
+            context += await self.get_memories(
+                user_input=user_input,
+                limit=limit,
+                min_relevance_score=0.2,
+            )
+        if additional_collections:
+            for collection in additional_collections:
+                self.collection_number = collection
+                context += await self.get_memories(
+                    user_input=user_input,
+                    limit=limit,
+                    min_relevance_score=0.2,
+                )
+        return context
+
+    async def batch_prompt(
+        self,
+        user_inputs: List[str] = [],
+        prompt_name: str = "Ask Questions",
+        prompt_category: str = "Default",
+        batch_size: int = 10,
+        qa: bool = False,
+        **kwargs,
+    ):
+        i = 0
+        tasks = []
+        responses = []
+        if user_inputs == []:
+            return []
+        for user_input in user_inputs:
+            i += 1
+            logging.info(f"[{i}/{len(user_inputs)}] Running Prompt: {prompt_name}")
+            if i % batch_size == 0:
+                responses += await asyncio.gather(**tasks)
+                tasks = []
+            task = asyncio.create_task(
+                await self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name=prompt_name,
+                    prompt_args={
+                        "prompt_category": prompt_category,
+                        "user_input": user_input,
+                        **kwargs,
+                    },
+                )
+                if not qa
+                else await self.agent_qa(question=user_input, context_results=10)
+            )
+            tasks.append(task)
+        responses += await asyncio.gather(**tasks)
+        return responses
+
+    # Answer a question with context injected, return in sharegpt format
+    async def agent_qa(self, question: str = "", context_results: int = 10):
+        context = await self.get_context(user_input=question, limit=context_results)
+        answer = await self.ApiClient.prompt_agent(
+            agent_name=self.agent_name,
+            prompt_name="Answer Question with Memory",
+            prompt_args={
+                "prompt_category": "Default",
+                "user_input": question,
+                "context_results": context_results,
+            },
+        )
+        # Create a memory with question and answer
+        self.collection_number = 0
+        await self.write_text_to_memory(
+            user_input=question,
+            text=answer,
+            external_source="Synthetic QA",
+        )
+        qa = [
+            {
+                "from": "human",
+                "value": f"### Context\n{context}\n### Question\n{question}",
+            },
+            {"from": "gpt", "value": answer},
+        ]
+        return qa
+
+    # Creates a synthetic dataset from memories in sharegpt format
+    async def create_dataset_from_memories(
+        self, dataset_name: str = "", batch_size: int = 10
+    ):
+        memories = []
+        questions = []
+        if dataset_name == "":
+            dataset_name = f"{datetime.now().isoformat()}-dataset"
+        collections = await self.get_collections()
+        for collection in collections:
+            self.collection_name = collection
+            memories += await self.export_collection_to_json()
+        logging.info(f"There are {len(memories)} memories.")
+        memories = [memory["text"] for memory in memories]
+        # Get a list of questions about each memory
+        question_list = self.batch_prompt(
+            user_inputs=memories,
+            qa=False,
+            batch_size=batch_size,
+        )
+        for question in question_list:
+            # Convert the response to a list of questions
+            question = question.split("\n")
+            question = [
+                item.lstrip("0123456789.*- ") for item in question if item.lstrip()
+            ]
+            question = [item for item in question if item]
+            question = [item.lstrip("0123456789.*- ") for item in question]
+            questions += question
+        # Answer each question with context injected
+        qa = self.batch_prompt(
+            user_inputs=questions,
+            qa=True,
+            batch_size=batch_size,
+        )
+        conversations = {"conversations": [qa]}
+        # Save messages to a json file to be used as a dataset
+        with open(f"{dataset_name}.json", "w") as f:
+            f.write(json.dumps(conversations))
+        return conversations

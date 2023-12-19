@@ -5,6 +5,7 @@ import docx2txt
 import pdfplumber
 import zipfile
 import shutil
+import logging
 
 
 class FileReader(Memories):
@@ -14,6 +15,7 @@ class FileReader(Memories):
         agent_config=None,
         collection_number: int = 0,
         ApiClient=None,
+        user=None,
         **kwargs,
     ):
         super().__init__(
@@ -21,6 +23,7 @@ class FileReader(Memories):
             agent_config=agent_config,
             collection_number=collection_number,
             ApiClient=ApiClient,
+            user=user,
         )
         self.ApiClient = ApiClient
         self.workspace_restricted = True
@@ -58,29 +61,27 @@ class FileReader(Memories):
                 with zipfile.ZipFile(file_path, "r") as zipObj:
                     zipObj.extractall(path=os.path.join(base_path, "temp"))
                 # Iterate over every file that was extracted including subdirectories
-                for root, dirs, files in os.walk(os.getcwd()):
+                for root, dirs, files in os.walk(os.path.join(base_path, "temp")):
                     for name in files:
                         file_path = os.path.join(root, name)
+                        logging.info(f"Reading file: {file_path}")
                         await self.write_file_to_memory(file_path=file_path)
                 shutil.rmtree(os.path.join(base_path, "temp"))
             # If it is an audio file, convert it to base64 and read with Whisper STT
             elif file_path.endswith(
                 (".mp3", ".wav", ".ogg", ".m4a", ".flac", ".wma", ".aac")
             ):
-                with open(file_path, "rb") as f:
-                    audio_data = f.read()
-                base64_audio = audio_data.encode("base64")
                 content = self.ApiClient.execute_command(
                     agent_name=self.agent_name,
-                    command_name="Transcribe Base64 Audio",
-                    command_args={"base64_audio": base64_audio},
+                    command_name="Transcribe Audio from File",
+                    command_args={"filename": file_path},
                 )
             # Otherwise just read the file
             else:
                 # TODO: Add a store_image function to use if it is an image
                 # If the file isn't an image extension file, just read it
                 if not file_path.endswith(
-                    (".jpg", ".jpeg", ".png", ".gif", ".tiff", ".bmp")
+                    (".jpg", ".jpeg", ".png", ".gif", ".tiff", ".bmp", ".gz")
                 ):
                     with open(file_path, "r") as f:
                         content = f.read()

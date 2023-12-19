@@ -1,4 +1,5 @@
 from ApiClient import log_interaction
+from Defaults import DEFAULT_USER
 from Extensions import Extensions
 import logging
 import os
@@ -48,7 +49,7 @@ class voice_chat(Extensions):
             self.agent_name = kwargs["agent_name"]
         else:
             self.agent_name = "gpt4free"
-        self.voice_prompt = "Custom Input"
+        self.user = kwargs["user"] if "user" in kwargs else DEFAULT_USER
         self.tts_command = "Speak with TTS with Streamlabs Text to Speech"
         if "USE_STREAMLABS_TTS" in kwargs:
             if isinstance(kwargs["USE_STREAMLABS_TTS"], bool):
@@ -139,6 +140,9 @@ class voice_chat(Extensions):
         self,
         base64_audio,
         context_results=10,
+        tts=False,
+        inject_memories_from_collection_number=0,
+        prompt_name="Custom Input",
     ):
         # Convert from M4A to WAV
         filename = "recording.wav"
@@ -153,25 +157,28 @@ class voice_chat(Extensions):
             conversation_name=self.conversation_name,
             role="USER",
             message=user_message,
-            user="USER",
+            user=self.user,
         )
         logging.info(f"[Whisper]: Transcribed User Input: {user_input}")
         # Send the transcribed text to the agent.
         text_response = self.ApiClient.prompt_agent(
             agent_name=self.agent_name,
-            prompt_name=self.voice_prompt,
+            prompt_name=prompt_name,
             prompt_args={
                 "user_input": user_input,
                 "context_results": context_results,
+                "inject_memories_from_collection_number": inject_memories_from_collection_number,
             },
         )
         logging.info(f"[Whisper]: Text Response from LLM: {text_response}")
-        # Get the audio response from the TTS engine and return it.
-        audio_response = self.ApiClient.execute_command(
-            agent_name=self.agent_name,
-            command_name=self.tts_command,
-            command_args={"text": text_response},
-        )
-        logging.info(f"[Whisper]: Audio Response from TTS: {audio_response}")
-        os.remove(os.path.join(os.getcwd(), "WORKSPACE", filename))
-        return f"{audio_response}"
+        if str(tts).lower() == "true":
+            # Get the audio response from the TTS engine and return it.
+            audio_response = self.ApiClient.execute_command(
+                agent_name=self.agent_name,
+                command_name=self.tts_command,
+                command_args={"text": text_response},
+            )
+            logging.info(f"[Whisper]: Audio Response from TTS: {audio_response}")
+            os.remove(os.path.join(os.getcwd(), "WORKSPACE", filename))
+            return f"{audio_response}"
+        return f"{text_response}"

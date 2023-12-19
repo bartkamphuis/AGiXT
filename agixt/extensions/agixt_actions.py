@@ -3,11 +3,94 @@ import json
 import requests
 import os
 import re
-from safeexecute import execute_python_code
 from typing import List
 from Extensions import Extensions
 from local_llm import LLM
 from ApiClient import Chain
+import logging
+import docker
+import asyncio
+
+IMAGE_NAME = "joshxt/safeexecute:latest"
+
+
+def install_docker_image():
+    client = docker.from_env()
+    try:
+        client.images.get(IMAGE_NAME)
+        logging.info(f"Image '{IMAGE_NAME}' found locally")
+    except:
+        logging.info(f"Installing docker image '{IMAGE_NAME}' from Docker Hub")
+        client.images.pull(IMAGE_NAME)
+        logging.info(f"Image '{IMAGE_NAME}' installed")
+    return client
+
+
+def execute_python_code(code: str, working_directory: str = None) -> str:
+    if working_directory is None:
+        working_directory = os.path.join(os.getcwd(), "WORKSPACE")
+    docker_working_dir = working_directory
+    if os.environ.get("DOCKER_CONTAINER", False):
+        docker_working_dir = os.environ.get("WORKING_DIRECTORY", working_directory)
+    if not os.path.exists(working_directory):
+        os.makedirs(working_directory)
+    # Check if there are any package requirements in the code to install
+    package_requirements = re.findall(r"pip install (.*)", code)
+    # Strip out python code blocks if they exist in the code
+    if "```python" in code:
+        code = code.split("```python")[1].split("```")[0]
+    temp_file = os.path.join(os.getcwd(), "WORKSPACE", "temp.py")
+    with open(temp_file, "w") as f:
+        f.write(code)
+    os.chmod(temp_file, 0o755)  # Set executable permissions
+    try:
+        client = install_docker_image()
+        if package_requirements:
+            # Install the required packages in the container
+            for package in package_requirements:
+                try:
+                    logging.info(f"Installing package '{package}' in container")
+                    client.containers.run(
+                        IMAGE_NAME,
+                        f"pip install {package}",
+                        volumes={
+                            os.path.abspath(docker_working_dir): {
+                                "bind": "/workspace",
+                                "mode": "rw",
+                            }
+                        },
+                        working_dir="/workspace",
+                        stderr=True,
+                        stdout=True,
+                        detach=True,
+                    )
+                except Exception as e:
+                    logging.error(f"Error installing package '{package}': {str(e)}")
+                    return f"Error: {str(e)}"
+        # Run the Python code in the container
+        container = client.containers.run(
+            IMAGE_NAME,
+            f"python /workspace/temp.py",
+            volumes={
+                os.path.abspath(docker_working_dir): {
+                    "bind": "/workspace",
+                    "mode": "rw",
+                }
+            },
+            working_dir="/workspace",
+            stderr=True,
+            stdout=True,
+            detach=True,
+        )
+        container.wait()
+        logs = container.logs().decode("utf-8")
+        container.remove()
+        os.remove(temp_file)
+        logging.info(f"Python code executed successfully. Logs: {logs}")
+        return logs
+    except Exception as e:
+        logging.error(f"Error executing Python code: {str(e)}")
+        return f"Error: {str(e)}"
 
 
 def extract_markdown_from_message(message):
@@ -79,6 +162,8 @@ class agixt_actions(Extensions):
             "Read non-image file content into long term memory": self.read_file_content,
             "Get Local Model List": self.models,
             "Make CSV Code Block": self.make_csv_code_block,
+            "Get CSV Preview": self.get_csv_preview,
+            "Get CSV Preview Text": self.get_csv_preview_text,
             "Strip CSV Data from Code Block": self.get_csv_from_response,
         }
 
@@ -504,8 +589,19 @@ class agixt_actions(Extensions):
             response = response.split("```python")[1].split("```")[0]
         return response
 
-    async def execute_python_code_internal(self, code: str) -> str:
-        return execute_python_code(code=code, working_directory=self.WORKING_DIRECTORY)
+    async def execute_python_code_internal(self, code: str, text: str = "") -> str:
+        working_dir = os.environ.get("WORKING_DIRECTORY", self.WORKING_DIRECTORY)
+        if text:
+            csv_content_header = text.split("\n")[0]
+            # Remove any trailing spaces from any headers
+            csv_headers = [header.strip() for header in csv_content_header.split(",")]
+            # Replace the first line with the comma separated headers
+            text = ",".join(csv_headers) + "\n" + "\n".join(text.split("\n")[1:])
+            filename = "data.csv"
+            filepath = os.path.join(self.WORKING_DIRECTORY, filename)
+            with open(filepath, "w") as f:
+                f.write(text)
+        return execute_python_code(code=code, working_directory=working_dir)
 
     async def get_mindmap(self, task: str):
         mindmap = self.ApiClient.prompt_agent(
@@ -521,5 +617,51 @@ class agixt_actions(Extensions):
     async def make_csv_code_block(self, data: str) -> str:
         return f"```csv\n{data}\n```"
 
+    async def get_csv_preview(self, filename: str):
+        # Get first 2 lines of the file
+        filepath = self.safe_join(base=self.WORKING_DIRECTORY, paths=filename)
+        with open(filepath, "r") as f:
+            lines = f.readlines()
+        lines = lines[:2]
+        lines_string = "\n".join(lines)
+        return lines_string
+
+    async def get_csv_preview_text(self, text: str):
+        # Get first 2 lines of the text
+        lines = text.split("\n")
+        lines = lines[:2]
+        lines_string = "\n".join(lines)
+        return lines_string
+
     async def get_csv_from_response(self, response: str) -> str:
         return response.split("```csv")[1].split("```")[0]
+
+    # Convert LLM response of a list of either numbers like a numbered list, *'s, -'s to a list from the string response
+    async def convert_llm_response_to_list(self, response):
+        response = response.split("\n")
+        response = [item.lstrip("0123456789.*- ") for item in response if item.lstrip()]
+        response = [item for item in response if item]
+        response = [item.lstrip("0123456789.*- ") for item in response]
+        return response
+
+    async def convert_questions_to_dataset(self, response):
+        questions = await self.convert_llm_response_to_list(response)
+        tasks = []
+        i = 0
+        for question in questions:
+            i += 1
+            if i % 10 == 0:
+                await asyncio.gather(*tasks)
+                tasks = []
+            task = asyncio.create_task(
+                await self.ApiClient.prompt_agent(
+                    agent_name=self.agent_name,
+                    prompt_name="Basic With Memory",
+                    prompt_args={
+                        "user_input": question,
+                        "context_results": 10,
+                        "conversation_name": self.conversation_name,
+                    },
+                )
+            )
+            tasks.append(task)

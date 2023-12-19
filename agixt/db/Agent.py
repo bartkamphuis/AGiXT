@@ -1,4 +1,3 @@
-import json
 from DBConnection import (
     Agent as AgentModel,
     AgentSetting as AgentSettingModel,
@@ -16,38 +15,51 @@ from DBConnection import (
 )
 from Providers import Providers
 from Extensions import Extensions
-from Defaults import DEFAULT_SETTINGS
+from Defaults import DEFAULT_SETTINGS, DEFAULT_USER
 
 
-def add_agent(agent_name, provider_settings=None, commands=None, user="USER"):
+def add_agent(agent_name, provider_settings=None, commands=None, user=DEFAULT_USER):
     session = get_session()
     if not agent_name:
         return {"message": "Agent name cannot be empty."}
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
-    agent = AgentModel(name=agent_name, user_id=user_id)
-    session.add(agent)
-    session.commit()
 
     if provider_settings is None or provider_settings == "" or provider_settings == {}:
         provider_settings = DEFAULT_SETTINGS
-
-    settings = {
-        "commands": commands,
-        "settings": provider_settings,
-    }
-    agent_setting = AgentSettingModel(
-        agent_id=agent.id,
-        name="config",
-        value=json.dumps(settings),
+    if commands is None or commands == "" or commands == {}:
+        commands = {}
+    # Get provider ID based on provider name from provider_settings["provider"]
+    provider = (
+        session.query(ProviderModel)
+        .filter_by(name=provider_settings["provider"])
+        .first()
     )
-    session.add(agent_setting)
+    agent = AgentModel(name=agent_name, user_id=user_id, provider_id=provider.id)
+    session.add(agent)
+    session.commit()
+
+    for key, value in provider_settings.items():
+        agent_setting = AgentSettingModel(
+            agent_id=agent.id,
+            name=key,
+            value=value,
+        )
+        session.add(agent_setting)
+    if commands:
+        for command_name, enabled in commands.items():
+            command = session.query(Command).filter_by(name=command_name).first()
+            if command:
+                agent_command = AgentCommand(
+                    agent_id=agent.id, command_id=command.id, state=enabled
+                )
+                session.add(agent_command)
     session.commit()
 
     return {"message": f"Agent {agent_name} created."}
 
 
-def delete_agent(agent_name, user="USER"):
+def delete_agent(agent_name, user=DEFAULT_USER):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
@@ -92,7 +104,7 @@ def delete_agent(agent_name, user="USER"):
     return {"message": f"Agent {agent_name} deleted."}, 200
 
 
-def rename_agent(agent_name, new_name, user="USER"):
+def rename_agent(agent_name, new_name, user=DEFAULT_USER):
     session = get_session()
     user_data = session.query(User).filter(User.email == user).first()
     user_id = user_data.id
@@ -110,7 +122,7 @@ def rename_agent(agent_name, new_name, user="USER"):
     return {"message": f"Agent {agent_name} renamed to {new_name}."}, 200
 
 
-def get_agents(user="USER"):
+def get_agents(user=DEFAULT_USER):
     session = get_session()
     agents = session.query(AgentModel).filter(AgentModel.user.has(email=user)).all()
     output = []
@@ -118,91 +130,22 @@ def get_agents(user="USER"):
     for agent in agents:
         output.append({"name": agent.name, "status": False})
 
+    # Get global agents that belong to DEFAULT_USER
+    global_agents = (
+        session.query(AgentModel).filter(AgentModel.user.has(email=DEFAULT_USER)).all()
+    )
+    for agent in global_agents:
+        output.append({"name": agent.name, "status": False})
     return output
 
 
-def import_agent_config(agent_name, user="USER"):
-    session = get_session()
-    config_path = f"agents/{agent_name}/config.json"
-
-    # Load the config JSON file
-    with open(config_path) as f:
-        config = json.load(f)
-
-    # Get the agent from the database
-    agent = (
-        session.query(AgentModel)
-        .filter(AgentModel.name == agent_name, AgentModel.user.has(email=user))
-        .first()
-    )
-
-    if not agent:
-        print(f"Agent '{agent_name}' does not exist in the database.")
-        return
-
-    # Get the provider ID based on the provider name in the config
-    provider_name = config["settings"]["provider"]
-    provider = session.query(ProviderModel).filter_by(name=provider_name).first()
-
-    if not provider:
-        print(f"Provider '{provider_name}' does not exist in the database.")
-        return
-
-    # Update the agent's provider_id
-    agent.provider_id = provider.id
-
-    # Import agent commands
-    commands = config.get("commands", {})
-    for command_name, enabled in commands.items():
-        if enabled:
-            command = session.query(Command).filter_by(name=command_name).first()
-            if command:
-                agent_command = AgentCommand(
-                    agent_id=agent.id, command_id=command.id, state=True
-                )
-                session.add(agent_command)
-
-    # Import agent settings
-    settings = config.get("settings", {})
-    for setting_name, setting_value in settings.items():
-        if provider.id:
-            provider_setting = (
-                session.query(ProviderSetting)
-                .filter_by(provider_id=provider.id, name=setting_name)
-                .first()
-            )
-            if provider_setting:
-                agent_provider = (
-                    session.query(AgentProvider)
-                    .filter_by(provider_id=provider.id, agent_id=agent.id)
-                    .first()
-                )
-                if not agent_provider:
-                    agent_provider = AgentProvider(
-                        provider_id=provider.id, agent_id=agent.id
-                    )
-                    session.add(agent_provider)
-                    session.flush()  # Save the agent_provider object to generate an ID
-                if setting_value:
-                    agent_provider_setting = AgentProviderSetting(
-                        provider_setting_id=provider_setting.id,
-                        agent_provider_id=agent_provider.id,
-                        value=setting_value,
-                    )
-                    session.add(agent_provider_setting)
-            else:
-                if setting_value:
-                    agent_setting = AgentSettingModel(
-                        agent_id=agent.id, name=setting_name, value=setting_value
-                    )
-                    session.add(agent_setting)
-    session.commit()
-    print(f"Agent config imported successfully for agent: {agent_name}")
-
-
 class Agent:
-    def __init__(self, agent_name=None, user="USER", ApiClient=None):
+    def __init__(self, agent_name=None, user=DEFAULT_USER, ApiClient=None):
         self.agent_name = agent_name if agent_name is not None else "AGiXT"
+        self.session = get_session()
+        self.user = user
+        user_data = self.session.query(User).filter(User.email == self.user).first()
+        self.user_id = user_data.id
         self.AGENT_CONFIG = self.get_agent_config()
         self.load_config_keys()
         if "settings" not in self.AGENT_CONFIG:
@@ -216,12 +159,11 @@ class Agent:
             name=self.AI_PROVIDER, ApiClient=ApiClient, **self.PROVIDER_SETTINGS
         )
         self.available_commands = Extensions(
-            agent_name=self.agent_name, agent_config=self.AGENT_CONFIG
+            agent_name=self.agent_name,
+            agent_config=self.AGENT_CONFIG,
+            ApiClient=ApiClient,
+            user=self.user,
         ).get_available_commands()
-        self.user = user
-        self.session = get_session()
-        user_data = self.session.query(User).filter(User.email == self.user).first()
-        self.user_id = user_data.id
 
     def load_config_keys(self):
         config_keys = [
@@ -243,40 +185,51 @@ class Agent:
             )
             .first()
         )
-        if agent:
-            agent_setting = (
-                self.session.query(AgentSettingModel)
+        if not agent:
+            # Check if it is a global agent
+            global_user = (
+                self.session.query(User).filter(User.email == DEFAULT_USER).first()
+            )
+            agent = (
+                self.session.query(AgentModel)
                 .filter(
-                    AgentSettingModel.agent_id == agent.id,
-                    AgentSettingModel.name == "config",
+                    AgentModel.name == self.agent_name,
+                    AgentModel.user_id == global_user.id,
                 )
                 .first()
             )
-            if agent_setting:
-                config = json.loads(agent_setting.value)
 
-                # Retrieve the enabled commands for the agent
-                agent_commands = (
-                    self.session.query(AgentCommand)
-                    .join(Command)
-                    .filter(
-                        AgentCommand.agent_id == agent.id,
-                        AgentCommand.state == True,  # Only get enabled commands
-                    )
-                    .all()
+        config = {"settings": {}, "commands": {}}
+        if agent:
+            all_commands = self.session.query(Command).all()
+            agent_settings = (
+                self.session.query(AgentSettingModel).filter_by(agent_id=agent.id).all()
+            )
+            agent_commands = (
+                self.session.query(AgentCommand)
+                .join(Command)
+                .filter(
+                    AgentCommand.agent_id == agent.id,
+                    AgentCommand.state == True,
                 )
-                enabled_commands = [ac.command.name for ac in agent_commands]
+                .all()
+            )
+            for command in all_commands:
+                config["commands"].update(
+                    {
+                        command.name: command.name
+                        in [ac.command.name for ac in agent_commands]
+                    }
+                )
+            for setting in agent_settings:
+                config["settings"][setting.name] = setting.value
+            return config
+        return {"settings": DEFAULT_SETTINGS, "commands": {}}
 
-                # Add the enabled commands to the config
-                config["enabled_commands"] = enabled_commands
-
-                return config
-        return {}
-
-    async def instruct(self, prompt, tokens):
+    async def inference(self, prompt, tokens):
         if not prompt:
             return ""
-        answer = await self.PROVIDER.instruct(prompt=prompt, tokens=tokens)
+        answer = await self.PROVIDER.inference(prompt=prompt, tokens=tokens)
         return answer
 
     def get_commands_string(self):

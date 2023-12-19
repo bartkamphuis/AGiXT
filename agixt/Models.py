@@ -21,6 +21,11 @@ class AgentMemoryQuery(BaseModel):
     min_relevance_score: float = 0.0
 
 
+class Dataset(BaseModel):
+    dataset_name: str
+    batch_size: int = 5
+
+
 class Objective(BaseModel):
     objective: str
 
@@ -227,3 +232,17 @@ class CommandExecution(BaseModel):
     command_name: str
     command_args: dict
     conversation_name: str = "AGiXT Terminal Command Execution"
+
+
+class User(BaseModel):
+    email: str
+
+
+class GenerateModel(BaseModel):
+    inputs: str
+    parameters: dict
+
+
+class GenerateResponse(BaseModel):
+    details: dict
+    generated_text: str
